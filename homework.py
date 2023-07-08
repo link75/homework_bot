@@ -87,8 +87,8 @@ def check_response(response):
     elif 'homeworks' not in response:
         raise KeyError('В ответе API домашней работы нет ключа "homeworks"')
 
-    elif (not isinstance(response['homeworks'], list) or
-          not response['homeworks']):
+    elif (not isinstance(response['homeworks'], list)
+          or not response['homeworks']):
         raise TypeError('В ответе API домашней работы данные приходят '
                         'в другом формате (ожидается непустой список).')
 
@@ -115,7 +115,6 @@ def parse_status(homework):
 
 def main():
     """Основная логика работы бота."""
-
     check_tokens()
     logger.info('Проверка токенов пройдена.')
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
