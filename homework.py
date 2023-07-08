@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 import time
+from http import HTTPStatus
 
 import requests
 import telegram
@@ -36,6 +37,12 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 
+class NotForSendingError(Exception):
+    """Класс исключений-ошибок, которые не требуют отправки в Telegram."""
+
+    pass
+
+
 def check_tokens():
     """Проверка наличия обязательных переменных окружения (токенов)."""
     tokens = {
@@ -55,6 +62,7 @@ def check_tokens():
 def send_message(bot, message):
     """Отправка сообщения чат-боту."""
     try:
+        logger.debug('Отправляем сообщение в Telegram.')
         bot.send_message(TELEGRAM_CHAT_ID, message)
         logger.debug('Сообщение отправлено в Telegram.')
     except Exception as error:
@@ -65,12 +73,13 @@ def get_api_answer(timestamp):
     """Получение информации от API-сервиса."""
     try:
         payload = {'from_date': timestamp}
+        logger.debug('Отправляем запрос к API.')
         response = requests.get(ENDPOINT, headers=HEADERS, params=payload)
 
     except Exception as error:
         logger.error(f'Ошибка при запросе к API: {error}.')
 
-    if response.status_code != 200:
+    if response.status_code != HTTPStatus.OK:
         raise requests.exceptions.RequestException(
             f'Ошибка в ответе сервера API! Код ответа: {response.status_code}'
         )
@@ -82,18 +91,15 @@ def check_response(response):
     """Проверка ответа API на валидность данных."""
     if not isinstance(response, dict):
         raise TypeError('В ответе API структура данных '
-                        'не соответствует ожиданиям (ожидается словарь).')
+                        'не соответствует ожиданиям (ожидается словарь dict), '
+                        f'а получили другой тип данных: {type(response)}.')
 
     elif 'homeworks' not in response:
         raise KeyError('В ответе API домашней работы нет ключа "homeworks"')
 
-    elif (not isinstance(response['homeworks'], list)
-          or not response['homeworks']):
+    elif not isinstance(response['homeworks'], list):
         raise TypeError('В ответе API домашней работы данные приходят '
                         'в другом формате (ожидается непустой список).')
-
-    homework = response['homeworks'][0]
-    return homework
 
 
 def parse_status(homework):
@@ -115,29 +121,53 @@ def parse_status(homework):
 
 def main():
     """Основная логика работы бота."""
+    logging.basicConfig(
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        level=logging.INFO,
+        filename='program.log'
+    )
+
     check_tokens()
-    logger.info('Проверка токенов пройдена.')
+    logger.debug('Проверка токенов пройдена.')
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
-    logger.debug(timestamp)
     last_status = ''
+    error_message = ''
 
     while True:
         try:
             response = get_api_answer(timestamp)
-            homework = check_response(response)
-            status = parse_status(homework)
+            check_response(response)
+
+            if not response['homeworks']:
+                status = last_status
+            else:
+                status = parse_status(response['homeworks'][0])
+
             if status != last_status:
+                logger.debug('Статус домашней работы изменился.')
                 send_message(bot, message=status)
                 last_status = status
-            logger.debug('В ответе API нет обновлений по '
-                         'статусу домашней работы.')
+                timestamp = int(response['current_date'])
+            else:
+                logger.debug('В ответе API нет обновлений по '
+                             'статусу домашней работы.')
 
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
-            logger.error(message)
+            logger.error(message, exc_info=True)
 
-        time.sleep(RETRY_PERIOD)
+            if message != error_message:
+                try:
+                    logger.debug('Отправляем сообщение об ошибке в Telegram.')
+                    send_message(bot, message)
+                    logger.debug('Сообщение об ошибке отправлено в Telegram.')
+                    error_message = message
+                except NotForSendingError:
+                    logger.error('Сообщение об ошибке отправить не удалось.')
+
+        finally:
+            time.sleep(RETRY_PERIOD)
 
 
 if __name__ == '__main__':
