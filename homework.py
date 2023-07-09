@@ -8,6 +8,8 @@ import requests
 import telegram
 from dotenv import load_dotenv
 
+from exceptions import NotForSendingError
+
 load_dotenv()
 
 PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
@@ -26,23 +28,6 @@ HOMEWORK_VERDICTS = {
 }
 
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-formatter = logging.Formatter(
-    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-handler = logging.StreamHandler(stream=sys.stdout)
-handler.setLevel(logging.DEBUG)
-handler.setFormatter(formatter)
-logger.addHandler(handler)
-
-
-class NotForSendingError(Exception):
-    """Класс исключений-ошибок, которые не требуют отправки в Telegram."""
-
-    pass
-
-
 def check_tokens():
     """Проверка наличия обязательных переменных окружения (токенов)."""
     tokens = {
@@ -52,9 +37,9 @@ def check_tokens():
     }
     for key, value in tokens.items():
         if not value:
-            logger.critical('Отсутствует обязательная '
-                            f'переменная окружения: {key}. '
-                            'Программа принудительно остановлена.')
+            logging.critical('Отсутствует обязательная '
+                             f'переменная окружения: {key}. '
+                             'Программа принудительно остановлена.')
             sys.exit(1)
     return True
 
@@ -62,22 +47,24 @@ def check_tokens():
 def send_message(bot, message):
     """Отправка сообщения чат-боту."""
     try:
-        logger.debug('Отправляем сообщение в Telegram.')
+        logging.debug('Отправляем сообщение в Telegram.')
         bot.send_message(TELEGRAM_CHAT_ID, message)
-        logger.debug('Сообщение отправлено в Telegram.')
     except Exception as error:
-        logger.error(f'Ошибка отправки сообщения в Telegram: {error}.')
+        message = f'Ошибка отправки сообщения в Telegram: {error}.'
+        logging.error(message, exc_info=True)
+    else:
+        logging.debug('Сообщение отправлено в Telegram.')
 
 
 def get_api_answer(timestamp):
     """Получение информации от API-сервиса."""
     try:
         payload = {'from_date': timestamp}
-        logger.debug('Отправляем запрос к API.')
+        logging.debug('Отправляем запрос к API.')
         response = requests.get(ENDPOINT, headers=HEADERS, params=payload)
 
     except Exception as error:
-        logger.error(f'Ошибка при запросе к API: {error}.')
+        logging.error(f'Ошибка при запросе к API: {error}.', exc_info=True)
 
     if response.status_code != HTTPStatus.OK:
         raise requests.exceptions.RequestException(
@@ -121,14 +108,8 @@ def parse_status(homework):
 
 def main():
     """Основная логика работы бота."""
-    logging.basicConfig(
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        level=logging.INFO,
-        filename='program.log'
-    )
-
     check_tokens()
-    logger.debug('Проверка токенов пройдена.')
+    logging.debug('Проверка токенов пройдена.')
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
     last_status = ''
@@ -145,30 +126,41 @@ def main():
                 status = parse_status(response['homeworks'][0])
 
             if status != last_status:
-                logger.debug('Статус домашней работы изменился.')
+                logging.debug('Статус домашней работы изменился.')
                 send_message(bot, message=status)
                 last_status = status
                 timestamp = int(response['current_date'])
             else:
-                logger.debug('В ответе API нет обновлений по '
-                             'статусу домашней работы.')
+                logging.debug('В ответе API нет обновлений по '
+                              'статусу домашней работы.')
 
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
-            logger.error(message, exc_info=True)
+            logging.error(message, exc_info=True)
 
             if message != error_message:
                 try:
-                    logger.debug('Отправляем сообщение об ошибке в Telegram.')
+                    logging.debug('Отправляем сообщение об ошибке в Telegram.')
                     send_message(bot, message)
-                    logger.debug('Сообщение об ошибке отправлено в Telegram.')
                     error_message = message
                 except NotForSendingError:
-                    logger.error('Сообщение об ошибке отправить не удалось.')
+                    message = 'Сообщение об ошибке отправить не удалось.'
+                    logging.error(message, exc_info=True)
+                else:
+                    logging.debug('Сообщение об ошибке отправлено в Telegram.')
 
         finally:
             time.sleep(RETRY_PERIOD)
 
 
+def logger():
+    logging.basicConfig(
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        level=logging.DEBUG,
+        stream=sys.stdout,
+    )
+
+
 if __name__ == '__main__':
+    logger()
     main()
