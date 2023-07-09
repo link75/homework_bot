@@ -154,6 +154,7 @@ def main():
 
 
 def logger():
+    """Настройки логгера."""
     logging.basicConfig(
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         level=logging.DEBUG,
