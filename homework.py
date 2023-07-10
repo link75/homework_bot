@@ -64,7 +64,11 @@ def get_api_answer(timestamp):
         response = requests.get(ENDPOINT, headers=HEADERS, params=payload)
 
     except Exception as error:
-        logging.error(f'Ошибка при запросе к API: {error}.', exc_info=True)
+        message = (f'Ошибка при запросе к API: {error}. '
+                   f'Запрошенный адрес: {ENDPOINT}. '
+                   f'Заголовки запроса: {HEADERS}. '
+                   f'Отметка времени: {payload}.')
+        logging.error(message, exc_info=True)
 
     if response.status_code != HTTPStatus.OK:
         raise requests.exceptions.RequestException(
@@ -129,7 +133,7 @@ def main():
                 logging.debug('Статус домашней работы изменился.')
                 send_message(bot, message=status)
                 last_status = status
-                timestamp = int(response['current_date'])
+                timestamp = response.get('current_date', int(time.time()))
             else:
                 logging.debug('В ответе API нет обновлений по '
                               'статусу домашней работы.')
@@ -153,15 +157,10 @@ def main():
             time.sleep(RETRY_PERIOD)
 
 
-def logger():
-    """Настройки логгера."""
+if __name__ == '__main__':
     logging.basicConfig(
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         level=logging.DEBUG,
         stream=sys.stdout,
     )
-
-
-if __name__ == '__main__':
-    logger()
     main()
